@@ -1,4 +1,5 @@
 import sys
+import os
 import matplotlib.pyplot as plt
 
 from pyspark import SparkContext
@@ -19,14 +20,17 @@ def aggregate(rdd):
     return zip(*data)
 
 
-def plot(data_points):
-    x, y = data_points
-    plt.plot(x, y)
+def plot(data_sets):
+    for series, data_points in data_sets.iteritems():
+        x, y = data_points
+        plt.plot(x, y, label=series)
+
     plt.title('Best fitness')
     plt.xlabel('Time [s]')
     plt.ylabel('Best fitness')
     plt.axis([0, 85, -1000, 0])
     plt.grid(True)
+    plt.legend(loc='lower right')
     plt.show()
 
 
@@ -35,8 +39,11 @@ if __name__ == '__main__':
 
     sc = SparkContext("local", APP_NAME)
 
-    rdd = load_results(sc, results_dir, 'fitness')
+    data_sets = {}
+    for series in os.listdir(results_dir):
+        series_dir = os.path.join(results_dir, series)
+        rdd = load_results(sc, series_dir, 'fitness')
+        data_points = aggregate(rdd)
+        data_sets[series] = data_points
 
-    data_points = aggregate(rdd)
-
-    plot(data_points)
+    plot(data_sets)

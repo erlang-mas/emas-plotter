@@ -14,7 +14,7 @@ def load_results(sc, results_dir, metric):
 
 
 def fetch_metric_paths(results_dir, metric):
-    return glob.glob(os.path.join(results_dir, '*', '*', '*', '*', metric))
+    return glob.glob(os.path.join(results_dir, '*', '*', '*', metric))
 
 
 def process_metric_file(metric_path):
