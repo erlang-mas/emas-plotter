@@ -11,10 +11,11 @@ APP_NAME = 'EMAS - Best fitness'
 
 
 def aggregate(rdd):
+    rdd = rdd.filter(lambda (_key, value): value > -10000)
     rdd = rdd.reduceByKey(min)
     rdd = rdd.map(lambda ((_experiment, second), value): (second, value))
     rdd = average_by_key(rdd)
-    rdd = rdd.map(lambda (second, value): (second, int(value)))
+    rdd = rdd.map(lambda (second, value): (second, value))
     rdd = rdd.sortByKey()
     data = rdd.collect()
     return zip(*data)
@@ -25,10 +26,11 @@ def plot(data_sets):
         x, y = data_points
         plt.plot(x, y, label=series)
 
-    plt.title('Best fitness')
+    plt.title('EMAS - Best fitness')
     plt.xlabel('Time [s]')
     plt.ylabel('Best fitness')
-    plt.axis([0, 85, -1000, 0])
+    # plt.axis([0, 85, -1000, 0])
+    # plt.yscale('symlog', linthreshy=0.01)
     plt.grid(True)
     plt.legend(loc='lower right')
     plt.show()
