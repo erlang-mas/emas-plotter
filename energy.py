@@ -1,100 +1,74 @@
-import re
-import sys
-import os
+import re, sys, os, glob
 import matplotlib.pyplot as plt
 
 from pyspark import SparkContext
+from spark_utils import average_by_key
+
+APP_NAME = "EMAS - Best fitness"
+
+PATH_REGEX = re.compile('\A.+\/(.+)\/(.+)\/(.+)\/(.+)\/(.+)\/(.+)\Z')
+ENTRY_REGEX = re.compile('(.+)\s+(.+)\s+\[(.+)\]\s+(.+)\s+<MEASUREMENT-(\d+)>\s+<STEP-(\d+)>\s+\[(.+)\]')
+METRIC_ENTRY_REGEX = re.compile('{(\w+),([\d\-\.]+)}')
 
 
-APP_NAME = "EMAS - Population"
-
-METRIC_ENTERY_REGEX = re.compile("\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2})\.\d{3}\s+\[\w+]\s+<\d+\.(\d+)\.\d+>\s+\[(.*)]")
-METRIC_REGEX = re.compile("{(\w+),(\d+)}")
-
-COLORS = ['#2645A3', '#B0044B', '#2F7038', '#F0B800', '#FF1E00', '#039C99', '#7F21CC']
-
-
-def process(sc, log_path, output_dir=None):
-    rdd = sc.textFile(log_path)
-    rdd = rdd.flatMap(process_entry)
-    rdd = combine_lists_by_key(rdd)
-    rdd = rdd.map(lambda (key, val): (key, map(list, zip(*val))))
-    rdd = rdd.map(lambda ((population, metric), values): (population, (metric, values)))
-    rdd = combine_dicts_by_key(rdd)
-    data_sets = rdd.collectAsMap()
-    plot(data_sets, output_dir)
+def process(sc, series_dir):
+    log_paths = fetch_log_paths(series_dir)
+    rdd = sc.parallelize(log_paths)
+    rdd = rdd.flatMap(parse_log_file)
+    rdd = average_by_key(rdd)
+    rdd = rdd.map(lambda ((_experiment, measurement), value): (measurement, value))
+    rdd = average_by_key(rdd)
+    rdd = rdd.sortByKey()
+    return zip(*rdd.collect())
 
 
-def plot(data_sets, output_dir=None):
-    for population, metrics in data_sets.items():
-        fig = plt.figure()
-        fig.suptitle('Population ({}) - total energy'.format(population))
-
-        ax = fig.add_subplot(111)
-        ax.grid(True)
-
-        ax.set_xlabel('Epoch [s]')
-        ax.set_ylabel('Total energy')
-        ax.set_ylim(0, 2000)
-
-        x, y = metrics['total_energy']
-        ax.plot(x, y, label='total_energy', color=COLORS[0])
-
-        ax.legend(loc='lower right')
-
-        if output_dir:
-            fig.savefig(os.path.join(output_dir, population))
-        plt.show()
+def fetch_log_paths(root_dir):
+    return glob.glob(os.path.join(root_dir, '*', '*', 'console.log'))
 
 
-def combine_lists_by_key(rdd):
-    def create_combiner(val):
-        return [val]
-    def merge_value(acc, val):
-        acc.append(val)
-        return acc
-    def merge_combiners(acc1, acc2):
-        return acc1 + acc2
-    return rdd.combineByKey(create_combiner, merge_value, merge_combiners)
+def parse_log_file(log_path):
+    path_data = PATH_REGEX.match(log_path)
+    experiment = path_data.group(3)
+    with open(log_path) as log_file:
+        for line in log_file:
+            match = ENTRY_REGEX.match(line)
+            if not match:
+                continue
+            measurement, raw_metrics = match.group(5, 7)
+            metrics = extract_metrics(raw_metrics)
+            yield ((experiment, int(measurement)), metrics['total_energy'])
 
 
-def combine_dicts_by_key(rdd):
-    def create_combiner((key, val)):
-        return {key: val}
-    def merge_value(acc, (key, val)):
-        acc[key] = val
-        return acc
-    def merge_combiners(acc1, acc2):
-        return acc1.update(acc2)
-    return rdd.combineByKey(create_combiner, merge_value, merge_combiners)
-
-
-def process_entry(entry):
-    entry_data = METRIC_ENTERY_REGEX.match(entry)
-    if not entry_data:
-        return
-    raw_time, population, raw_metrics = entry_data.group(1, 2, 3)
-    epoch = normalize_time(raw_time)
-    metrics = normalize_metrics(raw_metrics)
-    for metric, value in metrics.iteritems():
-        yield ((population, metric), (epoch, value))
-
-
-def normalize_time(raw_time):
-    hours, minutes, seconds = map(int, raw_time.split(':'))
-    return hours * 60 * 60 + minutes * 60 + seconds
-
-
-def normalize_metrics(raw_metrics):
+def extract_metrics(raw_metrics):
     metrics = {}
-    for (metric, value) in re.findall(METRIC_REGEX, raw_metrics):
+    for (metric, value) in re.findall(METRIC_ENTRY_REGEX, raw_metrics):
         metrics[metric] = float(value)
     return metrics
 
 
-if __name__ == '__main__':
-    log_path = sys.argv[1]
+def plot(data_sets):
+    print data_sets
+    for series, data_points in data_sets.iteritems():
+        x, y = data_points
+        plt.plot(x, y, label=series)
 
+    plt.title('EMAS - Energy')
+    plt.xlabel('Time [s]')
+    plt.ylabel('Total energy')
+    # plt.axis([0, 85, -1000, 0])
+    # plt.yscale('symlog', linthreshy=0.01)
+    plt.grid(True)
+    plt.legend(loc='lower right', title='Nodes count')
+    plt.show()
+
+
+if __name__ == '__main__':
+    logs_dir = sys.argv[1]
     sc = SparkContext("local", APP_NAME)
 
-    process(sc, log_path)
+    data_sets = {}
+    for series in os.listdir(logs_dir):
+        series_dir = os.path.join(logs_dir, series)
+        data_sets[series] = process(sc, series_dir)
+
+    plot(data_sets)

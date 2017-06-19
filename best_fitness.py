@@ -7,7 +7,7 @@ from spark_utils import average_by_key
 APP_NAME = "EMAS - Best fitness"
 
 PATH_REGEX = re.compile('\A.+\/(.+)\/(.+)\/(.+)\/(.+)\/(.+)\/(.+)\Z')
-ENTRY_REGEX = re.compile('(.+)\s+(.+)\s+\[(.+)\]\s+(.+)\s+<MEASUREMENT-(\d+)>\s+\[(.+)\]')
+ENTRY_REGEX = re.compile('(.+)\s+(.+)\s+\[(.+)\]\s+(.+)\s+<MEASUREMENT-(\d+)>\s+<STEP-(\d+)>\s+\[(.+)\]')
 METRIC_ENTRY_REGEX = re.compile('{(\w+),([\d\-\.]+)}')
 
 
@@ -23,7 +23,7 @@ def process(sc, series_dir):
 
 
 def fetch_log_paths(root_dir):
-    return glob.glob(os.path.join(root_dir, '*', '*', 'log', 'console.log'))
+    return glob.glob(os.path.join(root_dir, '*', '*', 'console.log'))
 
 
 def parse_log_file(log_path):
@@ -34,7 +34,7 @@ def parse_log_file(log_path):
             match = ENTRY_REGEX.match(line)
             if not match:
                 continue
-            measurement, raw_metrics = match.groups()[4:6]
+            measurement, raw_metrics = match.group(5, 7)
             metrics = extract_metrics(raw_metrics)
             yield ((experiment, int(measurement)), metrics['best_fitness'])
 
@@ -47,6 +47,7 @@ def extract_metrics(raw_metrics):
 
 
 def plot(data_sets):
+    print data_sets
     for series, data_points in data_sets.iteritems():
         x, y = data_points
         plt.plot(x, y, label=series)
